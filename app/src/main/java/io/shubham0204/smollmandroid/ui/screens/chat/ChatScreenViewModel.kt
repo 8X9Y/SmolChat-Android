@@ -209,6 +209,17 @@ class ChatScreenViewModel(
     fun loadModel(onComplete: (ModelLoadingState) -> Unit = {}) {
         val chat = _uiState.value.chat
         val model = modelsRepository.getModelFromId(chat.llmModelId)
+        Log.e("MODEL_DEBUG", "chat.llmModelId=${chat.llmModelId}")
+        Log.e("MODEL_DEBUG", "model=$model")
+        if (model == null) {
+            Log.e("MODEL_DEBUG", "Model not found")
+
+            _uiState.update {
+                it.copy(showSelectModelListDialog = true)
+            }
+
+            return
+        }
         if (chat.llmModelId == -1L) {
             _uiState.update { it.copy(showSelectModelListDialog = true) }
         } else {
