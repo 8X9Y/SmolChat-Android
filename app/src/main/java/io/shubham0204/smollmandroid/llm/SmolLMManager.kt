@@ -226,13 +226,15 @@ class SmolLMManager(private val appDB: AppDB) {
             }
         }
     }
-
     fun stopResponseGeneration() {
         stateLock.withLock {
             responseGenerationJob.safeCancelJobIfActive()
             isInferenceOn = false
         }
     }
+
+    /** Returns the current number of context tokens used by the loaded model, or 0 if not loaded. */
+    fun getContextLengthUsed(): Int = if (isInstanceLoaded.get()) instance.getContextLengthUsed() else 0
 
     private fun Job?.safeCancelJobIfActive() {
         this?.cancel()

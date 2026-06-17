@@ -61,6 +61,15 @@ import kotlin.math.pow
 private const val LOGTAG = "[SmolLMAndroid-Kt]"
 private val LOGD: (String) -> Unit = { Log.d(LOGTAG, it) }
 
+/**
+ * Represents a file attached by the user to provide context for the chat.
+ */
+data class ChatFileAttachment(
+    val name: String,
+    val content: String,
+    val sizeBytes: Long,
+)
+
 private val findThinkHtmlBlockRegex = Regex("<blockquote><i><h6>[\\s\\S]*?</i></h6></blockquote>")
 internal fun String.stripThinkingForClipboard() = findThinkHtmlBlockRegex.replace(this, "").trim()
 
@@ -102,6 +111,10 @@ sealed class ChatScreenUIEvent {
             ChatScreenUIEvent()
 
         data object StopAudioTranscription : ChatScreenUIEvent()
+
+        data class AttachFile(val name: String, val content: String, val sizeBytes: Long) : ChatScreenUIEvent()
+
+        data object RemoveAttachedFile : ChatScreenUIEvent()
     }
 
     sealed class SystemPromptEvents {
@@ -163,6 +176,7 @@ data class ChatScreenUIState(
     val showSelectModelListDialog: Boolean = false,
     val showMoreOptionsPopup: Boolean = false,
     val showTasksBottomSheet: Boolean = false,
+    val attachedFile: ChatFileAttachment? = null
 )
 
 @KoinViewModel
@@ -231,7 +245,7 @@ class ChatScreenViewModel(
                     chat.minP,
                     chat.temperature,
                     !chat.isTask,
-                    chat.contextSize.toLong(),
+                    chat.contextSize.takeIf { it > 0 }?.toLong(),
                     chat.chatTemplate.takeIf { it.isNotBlank() && ("{%" in it || "{{" in it) },
                     chat.nThreads,
                     chat.useMmap,
@@ -542,6 +556,14 @@ class ChatScreenViewModel(
                 }
                 audioTranscriptionService.stopTranscription()
             }
+
+            is ChatScreenUIEvent.ChatEvents.AttachFile -> {
+                _uiState.update { it.copy(attachedFile = ChatFileAttachment(event.name, event.content, event.sizeBytes)) }
+            }
+
+            is ChatScreenUIEvent.ChatEvents.RemoveAttachedFile -> {
+                _uiState.update { it.copy(attachedFile = null) }
+            }
         }
     }
 
@@ -680,6 +702,10 @@ class ChatScreenViewModel(
         appDB.deleteMessage(messageId)
     }
 
+    /**
+     * Sends the user query to the LLM. Automatically clears oldest context messages if
+     * the context window is near full (>75% used) before sending.
+     */
     private fun sendUserQuery(query: String, addMessageToDB: Boolean = true) {
         val chat = uiState.value.chat
         // Update the 'dateUsed' attribute of the current Chat instance
@@ -692,13 +718,58 @@ class ChatScreenViewModel(
             // to maintain the 'stateless' nature of the task
             appDB.deleteMessages(chat.id)
         }
-
-        if (addMessageToDB) {
-            appDB.addUserMessage(chat.id, query)
+        // Auto-clear oldest context if we're running low on context space
+        val effectiveContextSize = chat.contextSize.coerceAtLeast(4096)
+        if (smolLMManager.isInstanceLoaded.get() &&
+            smolLMManager.getContextLengthUsed() > effectiveContextSize * 0.75
+        ) {
+            Log.d(LOGTAG, "Context near full, auto-clearing oldest messages")
+            // Delete the 4 oldest messages (2 user+assistant pairs)
+            appDB.deleteOldestMessages(chat.id, 4)
+            // Reload model with reduced context, then send
+            loadModel { state ->
+                if (state == ModelLoadingState.SUCCESS) {
+                    doSendUserQuery(query, addMessageToDB)
+                }
+            }
+        } else {
+            doSendUserQuery(query, addMessageToDB)
         }
+    }
+
+    /**
+     * Internal method that performs the actual query sending after context checks.
+     */
+    private fun doSendUserQuery(query: String, addMessageToDB: Boolean) {
+        val chat = uiState.value.chat
+        // Build the prompt: prepend file content if a file is attached
+        val attachedFile = _uiState.value.attachedFile
+        val promptForLLM = if (attachedFile != null) {
+            // Truncate file content to stay within model context limits
+            // Reserve ~50% of context for file, leaving room for history and response
+            val maxFileChars = (chat.contextSize.coerceAtLeast(4096) * 2).coerceAtLeast(5000)
+            val fileContent = if (attachedFile.content.length > maxFileChars) {
+                attachedFile.content.take(maxFileChars) +
+                    "\n\n[File truncated: showing ${maxFileChars} of ${attachedFile.content.length} chars]"
+            } else {
+                attachedFile.content
+            }
+            "[Uploaded file: ${attachedFile.name}]\n\nContent:\n---\n${fileContent}\n---\n\nTask: $query"
+        } else {
+            query
+        }
+        val displayMessage = if (attachedFile != null) {
+            "[File: ${attachedFile.name}] $query"
+        } else {
+            query
+        }
+        if (addMessageToDB) {
+            appDB.addUserMessage(chat.id, displayMessage)
+        }
+        _uiState.update { it.copy(attachedFile = null) }
         _uiState.update { it.copy(isGeneratingResponse = true, renderedPartialResponse = null) }
         smolLMManager.getResponse(
-            query,
+            promptForLLM,
             responseTransform = {
                 // Replace <think> tags with <blockquote> tags
                 // to get a neat Markdown rendering
@@ -752,7 +823,6 @@ class ChatScreenViewModel(
             },
         )
     }
-
     private fun stopGeneration() {
         smolLMManager.stopResponseGeneration()
         _uiState.update { it.copy(isGeneratingResponse = false, renderedPartialResponse = null) }

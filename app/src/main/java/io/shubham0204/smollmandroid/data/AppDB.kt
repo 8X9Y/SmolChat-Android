@@ -75,7 +75,7 @@ class AppDB(context: Context) {
                     dateCreated = Date(),
                     dateUsed = Date(),
                     llmModelId = llmModelId,
-                    contextSize = 2048,
+                    contextSize = 0, // 0 = use model native context size from GGUF
                     chatTemplate = chatTemplate,
                     isTask = isTask,
                 )
@@ -121,8 +121,9 @@ class AppDB(context: Context) {
     fun deleteMessage(messageId: Long) =
         runBlocking(Dispatchers.IO) { db.chatMessagesDao().deleteMessage(messageId) }
 
-    fun deleteMessages(chatId: Long) =
-        runBlocking(Dispatchers.IO) { db.chatMessagesDao().deleteMessages(chatId) }
+    fun deleteMessages(chatId: Long) = runBlocking(Dispatchers.IO) { db.chatMessagesDao().deleteMessages(chatId) }
+    fun deleteOldestMessages(chatId: Long, count: Int) =
+        runBlocking(Dispatchers.IO) { db.chatMessagesDao().deleteOldestMessages(chatId, count) }
 
     // Models
 

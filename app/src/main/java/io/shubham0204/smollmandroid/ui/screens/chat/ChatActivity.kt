@@ -415,7 +415,8 @@ private fun ColumnScope.ScreenUI(uiState: ChatScreenUIState, onEvent: (ChatScree
         uiState.modelLoadingState,
         uiState.audioTranscriptionUIState,
         uiState.isGeneratingResponse,
-        onEvent
+        onEvent,
+        attachedFile = uiState.attachedFile,
     )
 }
 
