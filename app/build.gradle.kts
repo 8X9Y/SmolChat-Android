@@ -139,6 +139,9 @@ dependencies {
     implementation("com.github.khushpanchal:Ketch:2.0.5")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // PDFBox for Android PDF text extraction
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

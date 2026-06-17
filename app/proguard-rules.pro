@@ -19,3 +19,12 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# PDFBox - keep all classes for Android
+-keep class com.tom_roush.pdfbox.** { *; }
+-dontwarn com.tom_roush.pdfbox.**
+-keep class org.apache.pdfbox.** { *; }
+-dontwarn org.apache.pdfbox.**
+-keep class org.apache.fontbox.** { *; }
+-dontwarn org.apache.fontbox.**
+-keep class com.sun.jna.** { *; }
+-dontwarn com.sun.jna.**

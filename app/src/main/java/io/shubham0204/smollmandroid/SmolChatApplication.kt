@@ -19,11 +19,13 @@ package io.shubham0204.smollmandroid
 import android.app.Application
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import io.shubham0204.smollmandroid.llm.FileTextExtractor
 import org.koin.ksp.generated.module
 
 class SmolChatApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        FileTextExtractor.init(this)
         startKoin {
             androidContext(this@SmolChatApplication)
             modules(KoinAppModule().module)

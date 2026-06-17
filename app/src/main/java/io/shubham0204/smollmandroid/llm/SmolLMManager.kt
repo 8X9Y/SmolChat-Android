@@ -161,10 +161,22 @@ class SmolLMManager(private val appDB: AppDB) {
                 try {
                     isInferenceOn = true
                     var response = ""
+                    var tokenCount = 0
+                    val queryChars = query.length
+                    LOGD("RAG_SEND [5/5] inference start: queryChars=$queryChars")
 
                     val duration = measureTime {
+                        val inferStartMs = System.currentTimeMillis()
                         instance.getResponseAsFlow(query).collect { piece ->
                             response += piece
+                            tokenCount++
+                            if (tokenCount == 1) {
+                                val ttft = System.currentTimeMillis() - inferStartMs
+                                LOGD("RAG_SEND [5/5] first token: ttft=${ttft}ms")
+                            }
+                            if (tokenCount % 50 == 0) {
+                                LOGD("RAG_SEND [5/5] progress: tokens=$tokenCount chars=${response.length}")
+                            }
                             withContext(Dispatchers.Main) {
                                 onPartialResponseGenerated(response)
                             }
@@ -181,14 +193,17 @@ class SmolLMManager(private val appDB: AppDB) {
                         appDB.addAssistantMessage(currentChat.id, response)
                     }
 
+                    val genSpeed = instance.getResponseGenerationSpeed()
+                    val contextUsed = instance.getContextLengthUsed()
+                    LOGD("RAG_SEND [5/5] inference done: tokens=$tokenCount speed=$genSpeed t/s time=${duration.inWholeSeconds}s contextUsed=$contextUsed")
                     withContext(Dispatchers.Main) {
                         isInferenceOn = false
                         onSuccess(
                             SmolLMResponse(
                                 response = response,
-                                generationSpeed = instance.getResponseGenerationSpeed(),
+                                generationSpeed = genSpeed,
                                 generationTimeSecs = duration.inWholeSeconds.toInt(),
-                                contextLengthUsed = instance.getContextLengthUsed(),
+                                contextLengthUsed = contextUsed,
                                 usedJinjaTemplate = instance.usedJinjaTemplate,
                             )
                         )

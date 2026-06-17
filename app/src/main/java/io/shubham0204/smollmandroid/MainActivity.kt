@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
         if (modelsRepository.getAvailableModelsList().isEmpty()) {
             Intent(this, DownloadModelActivity::class.java).apply {
                 startActivity(this)
+
                 finish()
             }
         } else {

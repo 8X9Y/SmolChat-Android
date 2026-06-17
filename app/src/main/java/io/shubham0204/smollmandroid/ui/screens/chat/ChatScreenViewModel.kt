@@ -37,6 +37,7 @@ import io.shubham0204.smollmandroid.data.SystemPrompt
 import io.shubham0204.smollmandroid.data.SystemPromptsStore
 import io.shubham0204.smollmandroid.data.Task
 import io.shubham0204.smollmandroid.llm.ModelsRepository
+import io.shubham0204.smollmandroid.llm.RAGManager
 import io.shubham0204.smollmandroid.llm.SmolLMManager
 import io.shubham0204.smollmandroid.llm.speech2text.AudioTranscriptionService
 import io.shubham0204.smollmandroid.ui.components.createAlertDialog
@@ -208,6 +209,7 @@ class ChatScreenViewModel(
     // to render them correctly in Markdown
     private val findThinkTagRegex = Regex("<think>(.*?)</think>", RegexOption.DOT_MATCHES_ALL)
     private var activityManager: ActivityManager
+    private val ragManager = RAGManager()
 
     init {
         setupCollectors()
@@ -559,10 +561,13 @@ class ChatScreenViewModel(
 
             is ChatScreenUIEvent.ChatEvents.AttachFile -> {
                 _uiState.update { it.copy(attachedFile = ChatFileAttachment(event.name, event.content, event.sizeBytes)) }
+                ragManager.indexDocument(event.name, event.content)
+                Log.d("RAG_CHUNK", "[2/5] ViewModel received: chunks=${ragManager.chunkCount}")
             }
 
             is ChatScreenUIEvent.ChatEvents.RemoveAttachedFile -> {
                 _uiState.update { it.copy(attachedFile = null) }
+                ragManager.clear()
             }
         }
     }
@@ -744,9 +749,15 @@ class ChatScreenViewModel(
         val chat = uiState.value.chat
         // Build the prompt: prepend file content if a file is attached
         val attachedFile = _uiState.value.attachedFile
-        val promptForLLM = if (attachedFile != null) {
-            // Truncate file content to stay within model context limits
-            // Reserve ~50% of context for file, leaving room for history and response
+        val promptForLLM = if (attachedFile != null && ragManager.chunkCount > 0) {
+            // RAG: retrieve top-5 relevant chunks
+            Log.d("RAG_SEARCH", "[3/5] ViewModel query: '$query'")
+            val retrieved = ragManager.search(query, topK = 5)
+            val ragContext = retrieved.joinToString("\n\n---\n\n") { it.text }
+            Log.d("RAG_PROMPT", "[4/5] prompt built: chunks=${retrieved.size} totalChars=${ragContext.length}")
+            "[Uploaded file: ${attachedFile.name}]\n\nRelevant excerpts:\n---\n${ragContext}\n---\n\nTask: $query"
+        } else if (attachedFile != null) {
+            // Fallback: no RAG chunks, use truncated full content
             val maxFileChars = (chat.contextSize.coerceAtLeast(4096) * 2).coerceAtLeast(5000)
             val fileContent = if (attachedFile.content.length > maxFileChars) {
                 attachedFile.content.take(maxFileChars) +
@@ -767,7 +778,9 @@ class ChatScreenViewModel(
             appDB.addUserMessage(chat.id, displayMessage)
         }
         _uiState.update { it.copy(attachedFile = null) }
+        ragManager.clear()
         _uiState.update { it.copy(isGeneratingResponse = true, renderedPartialResponse = null) }
+        Log.d("RAG_SEND", "[5/5] sending to model: promptChars=${promptForLLM.length}")
         smolLMManager.getResponse(
             promptForLLM,
             responseTransform = {
@@ -830,7 +843,8 @@ class ChatScreenViewModel(
 
     private fun switchChat(chat: Chat) {
         stopGeneration()
-        _uiState.update { it.copy(chat = chat) }
+        ragManager.clear()
+        _uiState.update { it.copy(chat = chat, attachedFile = null) }
         loadModel()
     }
 
@@ -844,6 +858,8 @@ class ChatScreenViewModel(
     private fun deleteChatMessages(chat: Chat) {
         stopGeneration()
         appDB.deleteMessages(chat.id)
+        ragManager.clear()
+        _uiState.update { it.copy(attachedFile = null) }
     }
 
     private fun deleteModel(modelId: Long) {

@@ -27,7 +27,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +48,8 @@ import compose.icons.feathericons.Paperclip
 import compose.icons.feathericons.Send
 import compose.icons.feathericons.StopCircle
 import compose.icons.feathericons.X
+import android.util.Log
+import io.shubham0204.smollmandroid.llm.FileTextExtractor
 import io.shubham0204.smollmandroid.R
 import io.shubham0204.smollmandroid.data.Chat
 import io.shubham0204.smollmandroid.ui.screens.chat.ChatScreenViewModel.ModelLoadingState
@@ -68,6 +74,8 @@ fun MessageInput(
         val keyboardController = LocalSoftwareKeyboardController.current
         val context = LocalContext.current
 
+        val coroutineScope = rememberCoroutineScope()
+
         val filePickerLauncher =
             rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.OpenDocument()
@@ -88,18 +96,43 @@ fun MessageInput(
                         val bytes = inputStream?.readBytes()
                         inputStream?.close()
                         if (bytes != null) {
-                            val content = String(bytes, Charsets.UTF_8)
-                            val name = getFileName(context, it)
-                            onEvent(
-                                ChatScreenUIEvent.ChatEvents.AttachFile(
-                                    name = name,
-                                    content = content,
-                                    sizeBytes = bytes.size.toLong()
-                                )
-                            )
+                            val fileName = getFileName(context, it)
+                            Log.d("PDF", "File selected: $fileName, size=${bytes.size}")
+                            val bytesSize = bytes.size
+                            val startMs = System.currentTimeMillis()
+                            Log.d("RAG_READ", "[1/5] File selected: $fileName, rawBytes=$bytesSize")
+                            coroutineScope.launch {
+                                try {
+                                    val content = withContext(Dispatchers.IO) {
+                                        FileTextExtractor.extract(bytes, fileName)
+                                    }
+                                    val elapsed = System.currentTimeMillis() - startMs
+                                    val wordCount = content.split(Regex("\\s+")).count { it.isNotBlank() }
+                                    Log.d("RAG_READ", "[1/5] Extract done: $fileName chars=${content.length} words=$wordCount elapsed=${elapsed}ms")
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Parsed: $wordCount words (${content.length} chars)",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                    onEvent(
+                                        ChatScreenUIEvent.ChatEvents.AttachFile(
+                                            name = fileName,
+                                            content = content,
+                                            sizeBytes = bytesSize.toLong()
+                                        )
+                                    )
+                                } catch (e: Throwable) {
+                                    Log.e("RAG_READ", "[1/5] Extract FAILED: $fileName error=${e.message}", e)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Failed to parse file: ${e.message}",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
                         }
-                    } catch (_: Exception) {
-                        // Silently ignore files that can't be read as text
+                    } catch (_: Throwable) {
+                        Log.e("PDF", "File read failed")
                     }
                 }
             }
@@ -168,7 +201,7 @@ fun MessageInput(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // File picker button (always visible when model is loaded)
-                        IconButton(onClick = { filePickerLauncher.launch(arrayOf("*/*")) }) {
+                        IconButton(onClick = { filePickerLauncher.launch(arrayOf("text/*", "application/pdf")) }) {
                             Icon(
                                 FeatherIcons.Paperclip,
                                 contentDescription = "Attach file",
