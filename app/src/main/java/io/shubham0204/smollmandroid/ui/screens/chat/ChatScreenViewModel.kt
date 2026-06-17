@@ -240,6 +240,8 @@ class ChatScreenViewModel(
             _uiState.update { it.copy(showSelectModelListDialog = true) }
         } else {
             _uiState.update { it.copy(modelLoadingState = ModelLoadingState.IN_PROGRESS) }
+            val cpuCores = Runtime.getRuntime().availableProcessors()
+            Log.d(LOGTAG, "RAG_SEND model params: nThreads=${chat.nThreads} cpuCores=$cpuCores useMlock=${chat.useMlock} useMmap=${chat.useMmap} contextSize=${chat.contextSize}")
             smolLMManager.load(
                 chat,
                 model.path,
@@ -745,19 +747,82 @@ class ChatScreenViewModel(
     /**
      * Internal method that performs the actual query sending after context checks.
      */
+    /**
+     * Internal method that performs the actual query sending after context checks.
+     * Two modes:
+     *   Chat Mode (attachedFile == null) → pure chat, zero RAG overhead, early return
+     *   Document QA Mode (attachedFile != null) → RAG retrieval + prompt construction
+     */
     private fun doSendUserQuery(query: String, addMessageToDB: Boolean) {
         val chat = uiState.value.chat
-        // Build the prompt: prepend file content if a file is attached
         val attachedFile = _uiState.value.attachedFile
-        val promptForLLM = if (attachedFile != null && ragManager.chunkCount > 0) {
-            // RAG: retrieve top-5 relevant chunks
+
+        // ── Chat Mode: no file attached, early return to bypass ALL RAG logic ──
+        if (attachedFile == null) {
+            if (addMessageToDB) {
+                appDB.addUserMessage(chat.id, query)
+            }
+            _uiState.update { it.copy(isGeneratingResponse = true, renderedPartialResponse = null) }
+            Log.d("RAG_SEND", "[CHAT] sending to model: queryChars=${query.length}")
+            smolLMManager.getResponse(
+                query,
+                responseTransform = {
+                    findThinkTagRegex.replace(it) { matchResult ->
+                        "<blockquote><i><h6>${matchResult.groupValues[1].trim()}</i></h6></blockquote>"
+                    }
+                },
+                onPartialResponseGenerated = { resp ->
+                    val display = if (resp.contains("<think>")) {
+                        resp
+                            .replace("<think>", "<blockquote><i><h6>")
+                            .replace("</think>", "</i></h6></blockquote>")
+                    } else {
+                        resp
+                    }
+                    _uiState.update { it.copy(renderedPartialResponse = mdRenderer.render(display)) }
+                },
+                onSuccess = { response ->
+                    val updatedChat = chat.copy(contextSizeConsumed = response.contextLengthUsed)
+                    _uiState.update {
+                        it.copy(
+                            chat = updatedChat,
+                            isGeneratingResponse = false,
+                            responseGenerationsSpeed = response.generationSpeed,
+                            responseGenerationTimeSecs = response.generationTimeSecs,
+                            memoryUsage = if (it.memoryUsage != null) getCurrentMemoryUsage() else null,
+                        )
+                    }
+                    appDB.updateChat(updatedChat)
+                },
+                onCancelled = {},
+                onError = { exception ->
+                    _uiState.update { it.copy(isGeneratingResponse = false) }
+                    createAlertDialog(
+                        dialogTitle = "An error occurred",
+                        dialogText = "The app is unable to process the query. The error message is: ${exception.message}",
+                        dialogPositiveButtonText = "Change model",
+                        onPositiveButtonClick = {},
+                        dialogNegativeButtonText = "",
+                        onNegativeButtonClick = {},
+                    )
+                },
+            )
+            return
+        }
+
+        // ── Document QA Mode: file attached, use RAG ──
+        val promptForLLM = if (ragManager.chunkCount > 0) {
             Log.d("RAG_SEARCH", "[3/5] ViewModel query: '$query'")
-            val retrieved = ragManager.search(query, topK = 5)
+            val retrieved = ragManager.search(query, topK = 3)
             val ragContext = retrieved.joinToString("\n\n---\n\n") { it.text }
             Log.d("RAG_PROMPT", "[4/5] prompt built: chunks=${retrieved.size} totalChars=${ragContext.length}")
+            val preview = retrieved.joinToString(" | ") { c ->
+                val label = if (c.chapter.isNotEmpty()) "[${c.chapter}] " else ""
+                "${label}${c.text.take(50)}..."
+            }
+            android.widget.Toast.makeText(context, "RAG: ${retrieved.size} hits`n$preview", android.widget.Toast.LENGTH_LONG).show()
             "[Uploaded file: ${attachedFile.name}]\n\nRelevant excerpts:\n---\n${ragContext}\n---\n\nTask: $query"
-        } else if (attachedFile != null) {
-            // Fallback: no RAG chunks, use truncated full content
+        } else {
             val maxFileChars = (chat.contextSize.coerceAtLeast(4096) * 2).coerceAtLeast(5000)
             val fileContent = if (attachedFile.content.length > maxFileChars) {
                 attachedFile.content.take(maxFileChars) +
@@ -766,14 +831,8 @@ class ChatScreenViewModel(
                 attachedFile.content
             }
             "[Uploaded file: ${attachedFile.name}]\n\nContent:\n---\n${fileContent}\n---\n\nTask: $query"
-        } else {
-            query
         }
-        val displayMessage = if (attachedFile != null) {
-            "[File: ${attachedFile.name}] $query"
-        } else {
-            query
-        }
+        val displayMessage = "[File: ${attachedFile.name}] $query"
         if (addMessageToDB) {
             appDB.addUserMessage(chat.id, displayMessage)
         }
@@ -784,14 +843,19 @@ class ChatScreenViewModel(
         smolLMManager.getResponse(
             promptForLLM,
             responseTransform = {
-                // Replace <think> tags with <blockquote> tags
-                // to get a neat Markdown rendering
                 findThinkTagRegex.replace(it) { matchResult ->
                     "<blockquote><i><h6>${matchResult.groupValues[1].trim()}</i></h6></blockquote>"
                 }
             },
             onPartialResponseGenerated = { resp ->
-                _uiState.update { it.copy(renderedPartialResponse = mdRenderer.render(resp)) }
+                val display = if (resp.contains("<think>")) {
+                    resp
+                        .replace("<think>", "<blockquote><i><h6>")
+                        .replace("</think>", "</i></h6></blockquote>")
+                } else {
+                    resp
+                }
+                _uiState.update { it.copy(renderedPartialResponse = mdRenderer.render(display)) }
             },
             onSuccess = { response ->
                 val updatedChat = chat.copy(contextSizeConsumed = response.contextLengthUsed)
@@ -801,12 +865,7 @@ class ChatScreenViewModel(
                         isGeneratingResponse = false,
                         responseGenerationsSpeed = response.generationSpeed,
                         responseGenerationTimeSecs = response.generationTimeSecs,
-                        memoryUsage =
-                            if (it.memoryUsage != null) {
-                                getCurrentMemoryUsage()
-                            } else {
-                                null
-                            },
+                        memoryUsage = if (it.memoryUsage != null) getCurrentMemoryUsage() else null,
                     )
                 }
                 appDB.updateChat(updatedChat)
@@ -818,16 +877,12 @@ class ChatScreenViewModel(
                     ).show()
                 }
             },
-            onCancelled = {
-                // ignore CancellationException, as it was called because
-                // `responseGenerationJob` was cancelled in the `stopGeneration` method
-            },
+            onCancelled = {},
             onError = { exception ->
                 _uiState.update { it.copy(isGeneratingResponse = false) }
                 createAlertDialog(
                     dialogTitle = "An error occurred",
-                    dialogText =
-                        "The app is unable to process the query. The error message is: ${exception.message}",
+                    dialogText = "The app is unable to process the query. The error message is: ${exception.message}",
                     dialogPositiveButtonText = "Change model",
                     onPositiveButtonClick = {},
                     dialogNegativeButtonText = "",

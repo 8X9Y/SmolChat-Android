@@ -1,4 +1,4 @@
-package io.shubham0204.smollmandroid.ui.screens.chat
+﻿package io.shubham0204.smollmandroid.ui.screens.chat
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -138,8 +138,9 @@ fun MessageInput(
             }
 
         Column(modifier = Modifier.padding(8.dp)) {
-            // File attachment preview
+            // ── Mode indicator ──
             if (attachedFile != null) {
+                // Document QA Mode with file preview
                 Row(
                     modifier =
                         Modifier
@@ -158,7 +159,7 @@ fun MessageInput(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = attachedFile.name,
+                        text = "📄 Document QA: ${attachedFile.name}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -177,8 +178,22 @@ fun MessageInput(
                         )
                     }
                 }
+            } else {
+                // Chat Mode indicator
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp)
+                        .padding(horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "💬 Chat Mode",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                }
             }
-
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
