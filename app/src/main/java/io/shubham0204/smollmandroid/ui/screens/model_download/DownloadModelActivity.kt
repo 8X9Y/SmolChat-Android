@@ -19,6 +19,7 @@ package io.shubham0204.smollmandroid.ui.screens.model_download
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -39,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -60,10 +62,15 @@ import io.shubham0204.smollmandroid.ui.theme.SmolLMAndroidTheme
 import kotlinx.serialization.Serializable
 import org.koin.android.ext.android.inject
 import kotlin.reflect.typeOf
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import io.shubham0204.smollmandroid.modelmarket.ModelDownloadManager
+import io.shubham0204.smollmandroid.modelmarket.ModelInfo
 
 class DownloadModelActivity : ComponentActivity() {
     private var openChatScreen: Boolean = true
     private val viewModel: DownloadModelsViewModel by inject()
+    private val downloadManager: ModelDownloadManager by inject()
 
     @Serializable
     data class ViewModelRoute(
@@ -82,6 +89,11 @@ class DownloadModelActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
+            // Compose state for browse-download progress
+            var downloadProgress by remember { mutableStateOf(0f) }
+            var downloadState by remember { mutableStateOf<ModelDownloadManager.DownloadState?>(null) }
+            var downloadingFileName by remember { mutableStateOf<String?>(null) }
+            val coroutineScope = rememberCoroutineScope()
             val navController = rememberNavController()
             Box(modifier = Modifier.safeDrawingPadding()) {
                 NavHost(
@@ -105,8 +117,15 @@ class DownloadModelActivity : ComponentActivity() {
                             route.modelInfo,
                             route.modelFiles,
                             onDownloadModel = { modelUrl ->
+                                Log.d("DOM_2_ACTIVITY", "onDownloadModel: url=$modelUrl")
                                 viewModel.downloadModelFromUrl(modelUrl)
                             },
+                            isDownloading = downloadState != null &&
+                                downloadState !is ModelDownloadManager.DownloadState.Ready &&
+                                downloadState !is ModelDownloadManager.DownloadState.Error,
+                            downloadingFileName = downloadingFileName,
+                            downloadProgress = downloadProgress,
+                            downloadState = downloadState,
                             onBackClicked = { navController.navigateUp() },
                         )
                     }

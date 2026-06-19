@@ -50,6 +50,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -101,13 +108,20 @@ fun HFModelDownloadScreen(
                         .padding(innerPadding)
                         .background(MaterialTheme.colorScheme.surface)
             ) {
-                var query by rememberSaveable { mutableStateOf("") }
+                var inputText by rememberSaveable { mutableStateOf("") }
+                var debouncedQuery by rememberSaveable { mutableStateOf("") }
+
+                // Debounce: wait 2000ms after user stops typing before firing search
+                LaunchedEffect(inputText) {
+                    delay(2000)
+                    debouncedQuery = inputText
+                }
                 TextField(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    value = query,
-                    onValueChange = { query = it },
+                    value = inputText,
+                    onValueChange = { inputText = it },
                     shape = RoundedCornerShape(12.dp),
                     colors =
                         TextFieldDefaults.colors(
@@ -130,7 +144,7 @@ fun HFModelDownloadScreen(
                         ),
                     singleLine = true,
                 )
-                ModelList(query, viewModel, onModelClick)
+                ModelList(debouncedQuery, viewModel, onModelClick)
                 AppProgressDialog()
             }
         }
@@ -169,7 +183,7 @@ private fun ModelListItem(model: HFModelSearch.ModelSearchResult, onModelClick: 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onModelClick(model.id) },
+            .clickable { android.util.Log.d("DOM_SRCH_CLICK", "Search result clicked: ${model.id}"); onModelClick(model.id) },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)

@@ -61,7 +61,7 @@
     <string name="dialog_delete_task_title">Delete Task</string>
     <string name="add_new_model_title">Add New Model</string>
     <string name="download_model_step_des">Download a model to your device. Models are files with a .gguf extension. Choose any model from the list below to start downloading it on your device: </string>
-    <string name="download_model_browse_hf">Browse from HuggingFace</string>
+    <string name="download_model_browse_hf">Browse HF-Mirror (China Mirror)</string>
     <string name="download_model_download">Download Model</string>
     <string name="download_model_desc_download_location">Models are downloaded in the \'Downloads\' directory of your device</string>
     <string name="download_model_select_gguf">Select a GGUF file from the file explorer</string>
@@ -109,7 +109,7 @@
     <string name="button_text_back">Back</string>
     <string name="button_text_next">Next</string>
     <string name="download_model_next_step_des">Once the models have been downloaded, go to the next section on \'Importing Models\'</string>
-    <string name="download_model_step_hf_browse">Browse the model from HuggingFace and download the .gguf model file.</string>
+    <string name="download_model_step_hf_browse">Browse models via HF-Mirror (domestic mirror for faster download in China).</string>
     <string name="dialog_invalid_file_title">Invalid File</string>
     <string name="dialog_invalid_file_text">The selected file is not a valid GGUF file.</string>
     <string name="chat_options_benchmark_model">Benchmark Model</string>

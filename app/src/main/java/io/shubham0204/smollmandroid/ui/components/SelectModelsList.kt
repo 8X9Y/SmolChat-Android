@@ -65,7 +65,6 @@ import io.shubham0204.smollmandroid.data.LLMModel
 import io.shubham0204.smollmandroid.ui.preview.dummyLLMModels
 import io.shubham0204.smollmandroid.ui.screens.model_download.DownloadModelActivity
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 
 private enum class SortOrder {

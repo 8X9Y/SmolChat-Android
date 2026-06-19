@@ -50,6 +50,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -74,6 +75,15 @@ import io.shubham0204.smollmandroid.ui.components.AppAlertDialog
 import io.shubham0204.smollmandroid.ui.components.AppBarTitleText
 import io.shubham0204.smollmandroid.ui.components.createAlertDialog
 import io.shubham0204.smollmandroid.ui.theme.SmolLMAndroidTheme
+import androidx.compose.material3.LinearProgressIndicator
+
+import androidx.compose.material3.Button
+
+import androidx.compose.material3.ButtonDefaults
+
+import androidx.compose.material3.CircularProgressIndicator
+
+import io.shubham0204.smollmandroid.modelmarket.ModelDownloadManager
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -110,6 +120,10 @@ fun ViewHFModelScreen(
     modelInfo: HFModelInfo.ModelInfo,
     modelFileTree: List<HFModelTree.HFModelFile>,
     onDownloadModel: (String) -> Unit,
+    isDownloading: Boolean = false,
+    downloadingFileName: String? = null,
+    downloadProgress: Float = 0f,
+    downloadState: ModelDownloadManager.DownloadState? = null,
     onBackClicked: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -175,24 +189,13 @@ fun ViewHFModelScreen(
                 )
 
                 GGUFModelsList(
-                    modelFileTree,
-                    onModelClick = { modelFile ->
-                        createAlertDialog(
-                            dialogTitle = "Download Model",
-                            dialogText =
-                                "The model will start downloading and will be stored in the Downloads " +
-                                        "folder. Select the model file from the file explorer to load it in the app.",
-                            dialogPositiveButtonText = "Download",
-                            onPositiveButtonClick = {
-                                onDownloadModel(
-                                    "https://huggingface.co/${modelInfo.modelId}/resolve/main/${modelFile.path}"
-                                )
-                                onBackClicked()
-                            },
-                            dialogNegativeButtonText = "Cancel",
-                            onNegativeButtonClick = {},
-                        )
-                    },
+                    modelFiles = modelFileTree,
+                    isDownloading = isDownloading,
+                    modelInfo = modelInfo,
+                    onDownloadModel = onDownloadModel,
+                    downloadingFileName = downloadingFileName,
+                    downloadProgress = downloadProgress,
+                    downloadState = downloadState,
                 )
             }
             AppAlertDialog()
@@ -203,14 +206,19 @@ fun ViewHFModelScreen(
 @Composable
 private fun GGUFModelsList(
     modelFiles: List<HFModelTree.HFModelFile>,
-    onModelClick: (HFModelTree.HFModelFile) -> Unit,
+    modelInfo: HFModelInfo.ModelInfo,
+    onDownloadModel: (String) -> Unit,
+    isDownloading: Boolean = false,
+    downloadingFileName: String? = null,
+    downloadProgress: Float = 0f,
+    downloadState: ModelDownloadManager.DownloadState? = null,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(modelFiles) { modelFile ->
-            GGUFModelListItem(modelFile, onModelClick)
+            GGUFModelListItem(modelFile = modelFile, modelInfo = modelInfo, onDownloadModel = onDownloadModel, isDownloading = isDownloading, downloadingFileName = downloadingFileName, downloadProgress = downloadProgress, downloadState = downloadState)
         }
     }
 }
@@ -218,13 +226,22 @@ private fun GGUFModelsList(
 @Composable
 private fun GGUFModelListItem(
     modelFile: HFModelTree.HFModelFile,
-    onModelFileClick: (HFModelTree.HFModelFile) -> Unit,
+    modelInfo: HFModelInfo.ModelInfo,
+    onDownloadModel: (String) -> Unit,
+    isDownloading: Boolean = false,
+    downloadingFileName: String? = null,
+    downloadProgress: Float = 0f,
+    downloadState: ModelDownloadManager.DownloadState? = null,
 ) {
     val fileSizeGB = modelFile.size / 1e+9
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onModelFileClick(modelFile) },
+            .clickable { 
+            val url = "https://hf-mirror.com/${modelInfo.modelId}/resolve/main/${modelFile.path}"
+            android.util.Log.d("DOM_1_CLICK", "GGUF card clicked: ${modelFile.path} -> $url")
+            onDownloadModel(url) 
+        },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
@@ -270,6 +287,42 @@ private fun GGUFModelListItem(
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(20.dp)
             )
+        }
+        // Download progress indicator
+        if (isDownloading && downloadingFileName == modelFile.path) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                when (downloadState) {
+                    is ModelDownloadManager.DownloadState.Starting -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Preparing...", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    is ModelDownloadManager.DownloadState.Progress -> {
+                        Column {
+                            LinearProgressIndicator(progress = { downloadProgress }, modifier = Modifier.fillMaxWidth())
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${(downloadProgress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    is ModelDownloadManager.DownloadState.Importing -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Importing...", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    is ModelDownloadManager.DownloadState.Ready -> {
+                        Text("�?Ready", style = MaterialTheme.typography.labelSmall, color = Color(0xFF4CAF50))
+                    }
+                    is ModelDownloadManager.DownloadState.Error -> {
+                        Text("�?Failed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    }
+                    else -> {}
+                }
+            }
         }
     }
 }
