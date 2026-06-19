@@ -73,16 +73,40 @@ private enum class SortOrder {
     DATE_ADDED,
 }
 
-@Preview
+@Preview(showBackground = true, widthDp = 360, heightDp = 500)
 @Composable
-private fun PreviewSelectModelsList() {
-    SelectModelsList(
-        onDismissRequest = {},
-        modelsList = dummyLLMModels.toImmutableList(),
-        onModelListItemClick = {},
-        onModelDeleteClick = {},
-        showModelDeleteIcon = false,
-    )
+internal fun PreviewSelectModelsList() {
+    // Preview inner content directly (Dialog does not render in Compose Preview)
+    var sortOrder by remember { mutableStateOf(SortOrder.NAME) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(8.dp))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Select Model",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Choose a model to use for this chat",
+            style = MaterialTheme.typography.labelSmall,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+            items(dummyLLMModels.sortedBy { it.name }) {
+                ModelListItem(
+                    model = it,
+                    onModelListItemClick = {},
+                    onModelDeleteClick = {},
+                    showModelDeleteIcon = false,
+                )
+            }
+        }
+    }
 }
 
 @Composable
